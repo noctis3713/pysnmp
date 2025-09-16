@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:)",
+      "Bash(docker-compose config:*)",
+      "Bash(docker:*)",
+      "Bash(python3:*)",
+      "Bash(chmod:*)",
+      "Bash(tree:*)",
+      "Read(//home/sysadmin/.claude/**)",
+      "Bash(npx @anthropic/mcp help:*)",
+      "Bash(npm install:*)",
+      "Bash(npm search:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(npx:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(claude mcp:*)",
+      "Bash(curl:*)",
+      "Bash(sudo dd:*)",
+      "Bash(sudo -S apt:*)",
+      "Bash(sudo -S dd:*)",
+      "Bash(poetry:*)",
+      "Bash(pipenv:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

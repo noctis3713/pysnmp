@@ -1,0 +1,27 @@
+# 自動換行符號處理規則
+
+# 文字檔案使用 LF 換行符號
+* text=auto
+
+# Python 檔案強制使用 LF
+*.py text eol=lf
+
+# YAML 配置檔案使用 LF
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Markdown 檔案使用 LF
+*.md text eol=lf
+
+# 其他文字檔案使用 LF
+*.txt text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+
+# 二進制檔案不進行換行符號轉換
+*.jpg binary
+*.png binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary

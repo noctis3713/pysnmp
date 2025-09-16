@@ -1,0 +1,24 @@
+apiVersion: 1
+
+deleteDatasources:
+  - name: InfluxDB-TNMS
+    orgId: 1
+
+datasources:
+  - name: InfluxDB-TNMS
+    type: influxdb
+    access: proxy
+    orgId: 1
+    url: http://influxdb:8086
+    user: ''
+    database: ''
+    basicAuth: false
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: tnms-monitoring
+      defaultBucket: tnms_data
+      tlsSkipVerify: true
+    secureJsonData:
+      token: tnms-token-change-me
+    editable: true

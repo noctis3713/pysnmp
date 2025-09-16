@@ -1,0 +1,113 @@
+snmp:
+  host: "${TNMS_HOST}"
+  port: 161
+  community: "${SNMP_COMMUNITY}"
+  version: "2c"
+  timeout: 5
+  retries: 3
+  max_repetitions: 25
+
+influxdb:
+  url: "${INFLUXDB_URL}"
+  token: "${INFLUXDB_TOKEN}"
+  org: "${INFLUXDB_ORG}"
+  bucket: "${INFLUXDB_BUCKET}"
+  batch_size: 100
+  flush_interval: 10
+
+# 基本 OID 收集設定
+collection:
+  interval: 60
+  startup_delay: 30
+
+# Performance Monitoring (PM) 設定
+pm_collection:
+  enabled: true
+  interval: 60  # PM 收集間隔（秒）
+  request_type: "pmCurrent"  # pmCurrent 或 pmHistory
+  timeout: 60  # PM Request 執行超時時間（秒）
+
+  # Port 篩選設定
+  ports:
+    auto_discovery: true  # 自動探索所有 ports
+    filter: "GigE.*|10GE.*"  # 正則表達式篩選 port 名稱
+    cache_ttl: 300  # Port 清單快取時間（秒）
+
+  # 要收集的流量指標
+  metrics:
+    - "bytes_in"
+    - "bytes_out"
+    - "packets_in"
+    - "packets_out"
+    - "errors_in"
+    - "errors_out"
+    - "discards_in"
+    - "discards_out"
+
+  # 資料保留和清理
+  cleanup:
+    old_counters_ttl: 3600  # 舊計數器資料保留時間（秒）
+    old_requests_ttl: 1800  # PM Request 清理時間（秒）
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# TNMS 特定的 OID 定義
+oids:
+  network_elements:
+    name: "enmsNETable"
+    oid: "1.3.6.1.4.1.42229.6.22.2.1"
+    measurement: "tnms_network_elements"
+    fields:
+      - name: "neName"
+        oid: "1.3.6.1.4.1.42229.6.22.2.1.1.2"
+        type: "string"
+      - name: "neType"
+        oid: "1.3.6.1.4.1.42229.6.22.2.1.1.3"
+        type: "string"
+      - name: "neState"
+        oid: "1.3.6.1.4.1.42229.6.22.2.1.1.4"
+        type: "integer"
+      - name: "neLocation"
+        oid: "1.3.6.1.4.1.42229.6.22.2.1.1.5"
+        type: "string"
+
+  alarms:
+    name: "enmsAlarmTable"
+    oid: "1.3.6.1.4.1.42229.6.22.3.1"
+    measurement: "tnms_alarms"
+    fields:
+      - name: "alarmId"
+        oid: "1.3.6.1.4.1.42229.6.22.3.1.1.2"
+        type: "string"
+      - name: "alarmSeverity"
+        oid: "1.3.6.1.4.1.42229.6.22.3.1.1.3"
+        type: "integer"
+      - name: "alarmType"
+        oid: "1.3.6.1.4.1.42229.6.22.3.1.1.4"
+        type: "string"
+      - name: "alarmText"
+        oid: "1.3.6.1.4.1.42229.6.22.3.1.1.5"
+        type: "string"
+      - name: "alarmTime"
+        oid: "1.3.6.1.4.1.42229.6.22.3.1.1.6"
+        type: "string"
+
+  ports:
+    name: "enmsPortTable"
+    oid: "1.3.6.1.4.1.42229.6.22.2.3"
+    measurement: "tnms_ports"
+    fields:
+      - name: "portName"
+        oid: "1.3.6.1.4.1.42229.6.22.2.3.1.2"
+        type: "string"
+      - name: "portType"
+        oid: "1.3.6.1.4.1.42229.6.22.2.3.1.3"
+        type: "string"
+      - name: "portAdminState"
+        oid: "1.3.6.1.4.1.42229.6.22.2.3.1.4"
+        type: "integer"
+      - name: "portOperState"
+        oid: "1.3.6.1.4.1.42229.6.22.2.3.1.5"
+        type: "integer"

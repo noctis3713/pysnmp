@@ -30,7 +30,17 @@
       "Bash(sudo -S gpg:*)",
       "Bash(apt list:*)",
       "Bash(sudo apt:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(journalctl:*)",
+      "Read(//home/sysadmin/**)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(python test:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(python:*)",
+      "Bash(snmpget:*)",
+      "Bash(snmpwalk:*)",
+      "Bash(awk:*)"
     ],
     "deny": [],
     "ask": []

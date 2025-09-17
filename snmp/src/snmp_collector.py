@@ -187,14 +187,22 @@ class TNMSSNMPCollector:
     def test_connection(self) -> bool:
         """測試SNMP連線"""
         try:
-            # 測試系統描述 OID
-            result = self.get_single_value('1.3.6.1.2.1.1.1.0')
+            # 測試 TNMS 特定 OID (第一個網路元素的名稱)
+            test_oid = '1.3.6.1.4.1.42229.6.22.1.1.1.3.35'
+            result = self.get_single_value(test_oid)
             if result:
-                self.logger.info(f"SNMP連線測試成功，系統描述: {result}")
+                self.logger.info(f"TNMS SNMP連線測試成功，找到網路元素: {result}")
                 return True
             else:
-                self.logger.error("SNMP連線測試失敗")
-                return False
+                # 如果特定設備不存在，嘗試測試基礎表格
+                base_test_oid = '1.3.6.1.4.1.42229.6.22.1.1.1.1'
+                base_result = self.get_single_value(base_test_oid + '.35')
+                if base_result:
+                    self.logger.info(f"TNMS SNMP連線測試成功，基礎表格可用")
+                    return True
+                else:
+                    self.logger.error("TNMS SNMP連線測試失敗：無法連接到TNMS系統或無資料")
+                    return False
         except Exception as e:
             self.logger.error(f"SNMP連線測試錯誤: {e}")
             return False

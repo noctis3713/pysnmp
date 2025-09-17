@@ -25,7 +25,9 @@
       "Bash(source:*)",
       "Bash(pip install:*)",
       "Bash(git add:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(sudo -S install -m 0755 -d /etc/apt/keyrings)",
+      "Bash(sudo -S gpg:*)"
     ],
     "deny": [],
     "ask": []

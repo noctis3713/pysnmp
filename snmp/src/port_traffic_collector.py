@@ -145,50 +145,101 @@ class PortTrafficCollector(TNMSSNMPCollector):
             return []
 
         if ports is None:
-            name_filter = self.pm_config.get('ports', {}).get('filter')
-            ports = self.discover_ports(name_filter)
+            try:
+                name_filter = self.pm_config.get('ports', {}).get('filter')
+                ports = self.discover_ports(name_filter)
+            except Exception as e:
+                self.logger.error(f"探索 Port 時發生錯誤: {e}")
+                return []
 
         if not ports:
             self.logger.warning("沒有可收集的 Port")
             return []
 
-        self.logger.info(f"開始收集 {len(ports)} 個 Port 的流量資料")
+        # 分批處理 Port，避免一次處理太多
+        batch_size = self.pm_config.get('batch_size', 50)
+        all_records = []
+        failed_batches = 0
 
-        try:
-            # 建立批次 PM Request
-            filter_value = ','.join(ports.keys())
-            request_id = self.pm_manager.create_pm_request(
-                request_name=f"Port_Traffic_{int(time.time())}",
-                filter_value=filter_value,
-                request_type=PMRequestType.PM_CURRENT,
-                filter_type=FilterType.PORT_OBJECT
-            )
+        port_items = list(ports.items())
+        total_batches = (len(port_items) + batch_size - 1) // batch_size
 
-            if request_id is None:
-                self.logger.error("無法建立 PM Request")
-                return []
+        self.logger.info(f"開始收集 {len(ports)} 個 Port 的流量資料，分為 {total_batches} 批處理")
 
-            # 執行 Request
-            if not self.pm_manager.execute_pm_request(request_id, timeout=60):
-                self.logger.error(f"PM Request {request_id} 執行失敗")
-                self.pm_manager.delete_pm_request(request_id)
-                return []
+        for batch_index in range(0, len(port_items), batch_size):
+            batch_ports = dict(port_items[batch_index:batch_index + batch_size])
+            batch_num = batch_index // batch_size + 1
 
-            # 取得結果
-            pmp_results, value_results = self.pm_manager.get_pm_results(request_id)
+            try:
+                self.logger.debug(f"處理第 {batch_num}/{total_batches} 批 ({len(batch_ports)} 個 Port)")
 
-            # 處理結果資料
-            records = self._process_pm_results(pmp_results, value_results, ports)
+                # 建立批次 PM Request
+                filter_value = ','.join(batch_ports.keys())
+                request_id = self.pm_manager.create_pm_request(
+                    request_name=f"Port_Traffic_Batch_{batch_num}_{int(time.time())}",
+                    filter_value=filter_value,
+                    request_type=PMRequestType.PM_CURRENT,
+                    filter_type=FilterType.PORT_OBJECT
+                )
 
-            # 清理 Request
-            self.pm_manager.delete_pm_request(request_id)
+                if request_id is None:
+                    self.logger.error(f"無法建立第 {batch_num} 批的 PM Request")
+                    failed_batches += 1
+                    continue
 
-            self.logger.info(f"成功收集 {len(records)} 筆流量記錄")
-            return records
+                # 執行 Request（增加重試次數）
+                timeout = self.pm_config.get('request_timeout', 60)
+                max_retries = self.pm_config.get('max_retries', 3)
 
-        except Exception as e:
-            self.logger.error(f"收集 Port 流量時發生錯誤: {e}")
-            return []
+                if not self.pm_manager.execute_pm_request(request_id, timeout=timeout, max_retries=max_retries):
+                    self.logger.error(f"第 {batch_num} 批的 PM Request {request_id} 執行失敗")
+                    # 嘗試清理失敗的 Request
+                    try:
+                        self.pm_manager.delete_pm_request(request_id)
+                    except Exception as cleanup_e:
+                        self.logger.warning(f"清理失敗的 PM Request {request_id} 時發生錯誤: {cleanup_e}")
+                    failed_batches += 1
+                    continue
+
+                # 取得結果
+                try:
+                    pmp_results, value_results = self.pm_manager.get_pm_results(request_id)
+
+                    if not pmp_results and not value_results:
+                        self.logger.warning(f"第 {batch_num} 批沒有取得任何結果資料")
+                    else:
+                        # 處理結果資料
+                        batch_records = self._process_pm_results(pmp_results, value_results, batch_ports)
+                        all_records.extend(batch_records)
+                        self.logger.debug(f"第 {batch_num} 批成功收集 {len(batch_records)} 筆記錄")
+
+                except Exception as process_e:
+                    self.logger.error(f"處理第 {batch_num} 批結果時發生錯誤: {process_e}")
+                    failed_batches += 1
+
+                # 清理 Request
+                try:
+                    self.pm_manager.delete_pm_request(request_id)
+                except Exception as cleanup_e:
+                    self.logger.warning(f"清理 PM Request {request_id} 時發生錯誤: {cleanup_e}")
+
+                # 批次間稍微延遲，避免對 TNMS 造成過大負載
+                if batch_num < total_batches:
+                    time.sleep(1)
+
+            except Exception as e:
+                self.logger.error(f"處理第 {batch_num} 批時發生未預期的錯誤: {e}", exc_info=True)
+                failed_batches += 1
+                continue
+
+        # 記錄收集結果統計
+        success_batches = total_batches - failed_batches
+        self.logger.info(f"流量收集完成: 成功 {success_batches}/{total_batches} 批，收集 {len(all_records)} 筆記錄")
+
+        if failed_batches > 0:
+            self.logger.warning(f"有 {failed_batches} 批處理失敗，可能影響部分 Port 的資料收集")
+
+        return all_records
 
     def _process_pm_results(self, pmp_results: List[Dict], value_results: List[Dict],
                            ports: Dict[str, Dict]) -> List[Dict[str, Any]]:
@@ -202,17 +253,37 @@ class PortTrafficCollector(TNMSSNMPCollector):
             pmp_to_port = {}
             for pmp in pmp_results:
                 pmp_number = pmp.get('pmp_number')
-                # 從 PMP 結果取得 NE ID 和 Port ID
-                ne_id = pmp.get('field_3')  # 假設欄位 3 是 NE ID
-                port_id = pmp.get('field_4')  # 假設欄位 4 是 Port ID
+                # 從 PMP 結果取得 NE ID 和 Port ID（根據 MIB 確認的欄位）
+                ne_id = pmp.get('ne_id')
+                port_id = pmp.get('port_id')
+
+                # 記錄額外的 PMP 資訊以供除錯
+                pmp_name = pmp.get('pmp_name', '')
+                obj_location = pmp.get('obj_location', '')
+                direction = pmp.get('direction', '')
 
                 if ne_id and port_id:
                     port_key = f"{ne_id}|{port_id}"
                     if port_key in ports:
                         pmp_to_port[pmp_number] = {
                             'port_key': port_key,
-                            'port_info': ports[port_key]
+                            'port_info': ports[port_key],
+                            'pmp_info': {
+                                'pmp_name': pmp_name,
+                                'obj_location': obj_location,
+                                'direction': direction,
+                                'ne_name': pmp.get('ne_name', ''),
+                                'location': pmp.get('location', ''),
+                                'native_location': pmp.get('native_location', '')
+                            }
                         }
+                        self.logger.debug(f"PMP {pmp_number} 對應到 Port {port_key}: {pmp_name} ({direction})")
+                    else:
+                        # 記錄找不到對應 Port 的情況，便於除錯
+                        self.logger.debug(f"找不到對應的 Port: {port_key} (PMP: {pmp_number}, 名稱: {pmp_name})")
+                else:
+                    # 記錄缺少關鍵欄位的情況
+                    self.logger.debug(f"PMP {pmp_number} 缺少 NE ID 或 Port ID: ne_id={ne_id}, port_id={port_id}")
 
             # 按 PMP 分組數值
             pmp_values = {}
@@ -237,7 +308,8 @@ class PortTrafficCollector(TNMSSNMPCollector):
                 # 計算速率（如果有前次數據）
                 rates = self._calculate_rates(port_key, current_counter)
 
-                # 建立記錄
+                # 建立記錄，包含更多 PMP 資訊
+                pmp_info = port_mapping.get('pmp_info', {})
                 record = {
                     'measurement': 'port_traffic',
                     'tags': {
@@ -245,6 +317,10 @@ class PortTrafficCollector(TNMSSNMPCollector):
                         'port_id': port_info['port_id'],
                         'port_name': port_info.get('port_name', ''),
                         'port_type': port_info.get('port_type', ''),
+                        'pmp_name': pmp_info.get('pmp_name', ''),
+                        'pmp_direction': pmp_info.get('direction', ''),
+                        'pmp_location': pmp_info.get('location', ''),
+                        'ne_name': pmp_info.get('ne_name', ''),
                     },
                     'fields': {
                         # 計數器值
@@ -281,37 +357,71 @@ class PortTrafficCollector(TNMSSNMPCollector):
         counter = TrafficCounter()
 
         for value in values:
-            param = value.get('field_4', '')  # 假設欄位 4 是參數名稱
-            val = value.get('field_5', '0')   # 假設欄位 5 是數值
+            # 使用根據 MIB 確認的欄位名稱
+            param = value.get('param_name', '')
+            val = value.get('param_value', '0')
+            unit = value.get('unit', '')
+            status = value.get('status', '')
 
             try:
-                numeric_value = int(val) if val.isdigit() else 0
+                # 嘗試轉換為數字，支援不同的數字格式
+                if isinstance(val, (int, float)):
+                    numeric_value = int(val)
+                elif isinstance(val, str):
+                    if val.isdigit():
+                        numeric_value = int(val)
+                    else:
+                        # 嘗試處理科學記號或其他格式
+                        try:
+                            numeric_value = int(float(val))
+                        except (ValueError, TypeError):
+                            self.logger.debug(f"無法解析數值: {val} (參數: {param}, 單位: {unit})")
+                            continue
+                else:
+                    continue
 
                 # 根據參數名稱對應到計數器欄位
                 param_lower = param.lower() if param else ''
 
-                if 'bytes' in param_lower or 'octets' in param_lower:
-                    if 'in' in param_lower or 'rx' in param_lower:
+                # 更詳細的參數名稱對應邏輯，包含常見的 TNMS 參數名稱
+                # 位元組/八位元組相關
+                if any(x in param_lower for x in ['bytes', 'octets', 'byte']):
+                    if any(x in param_lower for x in ['in', 'rx', 'receive', 'ingress', 'input']):
                         counter.bytes_in = numeric_value
-                    elif 'out' in param_lower or 'tx' in param_lower:
+                        self.logger.debug(f"設定 bytes_in: {param} = {numeric_value}")
+                    elif any(x in param_lower for x in ['out', 'tx', 'transmit', 'egress', 'output']):
                         counter.bytes_out = numeric_value
-                elif 'packets' in param_lower or 'frames' in param_lower:
-                    if 'in' in param_lower or 'rx' in param_lower:
+                        self.logger.debug(f"設定 bytes_out: {param} = {numeric_value}")
+                # 封包/框架相關
+                elif any(x in param_lower for x in ['packets', 'frames', 'pkts', 'pkt', 'frame']):
+                    if any(x in param_lower for x in ['in', 'rx', 'receive', 'ingress', 'input']):
                         counter.packets_in = numeric_value
-                    elif 'out' in param_lower or 'tx' in param_lower:
+                        self.logger.debug(f"設定 packets_in: {param} = {numeric_value}")
+                    elif any(x in param_lower for x in ['out', 'tx', 'transmit', 'egress', 'output']):
                         counter.packets_out = numeric_value
+                        self.logger.debug(f"設定 packets_out: {param} = {numeric_value}")
+                # 錯誤相關
                 elif 'error' in param_lower:
-                    if 'in' in param_lower or 'rx' in param_lower:
+                    if any(x in param_lower for x in ['in', 'rx', 'receive', 'ingress', 'input']):
                         counter.errors_in = numeric_value
-                    elif 'out' in param_lower or 'tx' in param_lower:
+                        self.logger.debug(f"設定 errors_in: {param} = {numeric_value}")
+                    elif any(x in param_lower for x in ['out', 'tx', 'transmit', 'egress', 'output']):
                         counter.errors_out = numeric_value
-                elif 'discard' in param_lower or 'drop' in param_lower:
-                    if 'in' in param_lower or 'rx' in param_lower:
+                        self.logger.debug(f"設定 errors_out: {param} = {numeric_value}")
+                # 丟棄相關
+                elif any(x in param_lower for x in ['discard', 'drop', 'dropped']):
+                    if any(x in param_lower for x in ['in', 'rx', 'receive', 'ingress', 'input']):
                         counter.discards_in = numeric_value
-                    elif 'out' in param_lower or 'tx' in param_lower:
+                        self.logger.debug(f"設定 discards_in: {param} = {numeric_value}")
+                    elif any(x in param_lower for x in ['out', 'tx', 'transmit', 'egress', 'output']):
                         counter.discards_out = numeric_value
+                        self.logger.debug(f"設定 discards_out: {param} = {numeric_value}")
+                else:
+                    # 記錄未識別的參數，包含單位資訊
+                    self.logger.debug(f"未識別的參數: {param} = {val} ({unit}) [狀態: {status}]")
 
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
+                self.logger.debug(f"解析參數值時發生錯誤: {param} = {val}, 錯誤: {e}")
                 continue
 
         return counter
@@ -387,17 +497,57 @@ class PortTrafficCollector(TNMSSNMPCollector):
 
         return stats
 
-    def cleanup_old_counters(self, max_age: int = 3600):
+    def cleanup_old_counters(self, max_age: int = 3600, max_counters: int = 1000) -> Dict[str, int]:
         """清理舊的計數器資料"""
         current_time = time.time()
-        to_remove = []
+        cleanup_stats = {
+            'expired_counters': 0,
+            'excess_counters': 0,
+            'total_cleaned': 0,
+            'remaining_counters': 0
+        }
 
+        # 1. 清理過期的計數器
+        expired_ports = []
         for port_key, counter in self.previous_counters.items():
             if current_time - counter.timestamp > max_age:
-                to_remove.append(port_key)
+                expired_ports.append(port_key)
 
-        for port_key in to_remove:
+        for port_key in expired_ports:
             del self.previous_counters[port_key]
+        cleanup_stats['expired_counters'] = len(expired_ports)
 
-        if to_remove:
-            self.logger.info(f"清理了 {len(to_remove)} 個過期的計數器記錄")
+        # 2. 如果計數器數量仍然過多，清理最舊的
+        if len(self.previous_counters) > max_counters:
+            # 按時間戳排序，保留最新的
+            sorted_counters = sorted(
+                self.previous_counters.items(),
+                key=lambda x: x[1].timestamp,
+                reverse=True
+            )
+
+            # 保留最新的 max_counters 個
+            to_keep = sorted_counters[:max_counters]
+            to_remove = sorted_counters[max_counters:]
+
+            # 重建字典
+            self.previous_counters = dict(to_keep)
+            cleanup_stats['excess_counters'] = len(to_remove)
+
+            if to_remove:
+                oldest_time = to_remove[-1][1].timestamp
+                newest_time = to_remove[0][1].timestamp
+                self.logger.info(f"因數量超限清理了 {len(to_remove)} 個計數器 "
+                               f"(時間範圍: {time.ctime(oldest_time)} 到 {time.ctime(newest_time)})")
+
+        cleanup_stats['total_cleaned'] = cleanup_stats['expired_counters'] + cleanup_stats['excess_counters']
+        cleanup_stats['remaining_counters'] = len(self.previous_counters)
+
+        # 記錄清理結果
+        if cleanup_stats['total_cleaned'] > 0:
+            self.logger.info(f"計數器清理完成: "
+                           f"過期 {cleanup_stats['expired_counters']} 個, "
+                           f"超量 {cleanup_stats['excess_counters']} 個, "
+                           f"剩餘 {cleanup_stats['remaining_counters']} 個")
+
+        return cleanup_stats

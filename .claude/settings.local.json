@@ -27,7 +27,10 @@
       "Bash(git add:*)",
       "Bash(git push:*)",
       "Bash(sudo -S install -m 0755 -d /etc/apt/keyrings)",
-      "Bash(sudo -S gpg:*)"
+      "Bash(sudo -S gpg:*)",
+      "Bash(apt list:*)",
+      "Bash(sudo apt:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

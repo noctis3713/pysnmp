@@ -2,7 +2,7 @@ import logging
 import time
 from typing import Dict, List, Any, Optional
 from pysnmp.hlapi import *
-from pysnmp.proto.rfc1902 import Counter32, Counter64, Gauge32, Integer32
+# pysnmp 5.1.0 支援 Python 3.12，使用標準 hlapi
 
 class TNMSSNMPCollector:
     def __init__(self, config: dict):
@@ -15,8 +15,7 @@ class TNMSSNMPCollector:
         self.retries = self.snmp_config.get('retries', 3)
         self.max_repetitions = self.snmp_config.get('max_repetitions', 25)
 
-        # SNMP 引擎設定 - 重用單一實例
-        self.snmp_engine = SnmpEngine()
+        # pysnmp 6.x 恢復正常的 API 使用方式
         self.target = UdpTransportTarget(
             (self.snmp_config['host'], self.snmp_config['port']),
             timeout=self.timeout,
@@ -48,7 +47,7 @@ class TNMSSNMPCollector:
         """獲取單一OID值"""
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in getCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -73,7 +72,7 @@ class TNMSSNMPCollector:
         results = {}
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in bulkCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,

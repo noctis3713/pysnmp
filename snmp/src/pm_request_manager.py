@@ -3,7 +3,7 @@ import time
 from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
 from pysnmp.hlapi import *
-from pysnmp.proto.rfc1902 import Counter32, Counter64, Gauge32, Integer32
+# pysnmp 5.1.0 支援 Python 3.12，使用標準 hlapi
 
 
 class PMRequestState(Enum):
@@ -97,7 +97,7 @@ class PMRequestManager:
         self.retries = self.snmp_config.get('retries', 3)
 
         # SNMP 引擎設定
-        self.snmp_engine = SnmpEngine()
+        # pysnmp 6.x 恢復正常的 API 使用方式
         self.target = UdpTransportTarget(
             (self.snmp_config['host'], self.snmp_config['port']),
             timeout=self.timeout,
@@ -113,7 +113,7 @@ class PMRequestManager:
         """取得下一個可用的 Request ID"""
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in getCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -148,7 +148,7 @@ class PMRequestManager:
 
             # 建立 PM Request
             for (errorIndication, errorStatus, errorIndex, varBinds) in setCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -212,7 +212,7 @@ class PMRequestManager:
                 # 啟動 Request
                 start_success = False
                 for (errorIndication, errorStatus, errorIndex, varBinds) in setCmd(
-                    self.snmp_engine,
+                    SnmpEngine(),
                     self.community,
                     self.target,
                     self.context,
@@ -299,7 +299,7 @@ class PMRequestManager:
         """取得 PM Request 狀態"""
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in getCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -320,7 +320,7 @@ class PMRequestManager:
         """取得 PM Request 資訊"""
         try:
             for (errorIndication, errorStatus, errorIndex, varBinds) in getCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -360,7 +360,7 @@ class PMRequestManager:
 
             # 遍歷 PMP 表格
             for (errorIndication, errorStatus, errorIndex, varBinds) in bulkCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -474,7 +474,7 @@ class PMRequestManager:
 
             # 遍歷數值表格
             for (errorIndication, errorStatus, errorIndex, varBinds) in bulkCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
@@ -557,7 +557,7 @@ class PMRequestManager:
             self.logger.info(f"刪除 PM Request {request_id}")
 
             for (errorIndication, errorStatus, errorIndex, varBinds) in setCmd(
-                self.snmp_engine,
+                SnmpEngine(),
                 self.community,
                 self.target,
                 self.context,
